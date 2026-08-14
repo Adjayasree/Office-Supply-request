@@ -1,0 +1,100 @@
+<mvc:View
+    controllerName="office.supply.app.controller.Main"
+    xmlns:mvc="sap.ui.core.mvc"
+    xmlns="sap.m"
+    xmlns:f="sap.ui.layout.form"
+    xmlns:core="sap.ui.core">
+    
+    <App id="app">
+        <pages>
+            <Page id="page" title="Office Supply Request Management">
+                <content>
+                    <IconTabBar id="iconTabBar" selectedKey="products">
+                        <items>
+                            <!-- Tab 1: Product List Page -->
+                            <IconTabFilter key="products" text="Products List" icon="sap-icon://product">
+                                <Table id="productTable" items="{/Products}">
+                                    <columns>
+                                        <Column><Text text="ID" /></Column>
+                                        <Column><Text text="Product Name" /></Column>
+                                        <Column><Text text="Category" /></Column>
+                                        <Column><Text text="Unit" /></Column>
+                                        <Column><Text text="Available Stock" /></Column>
+                                        <Column><Text text="Action" /></Column>
+                                    </columns>
+                                    <items>
+                                        <ColumnListItem>
+                                            <cells>
+                                                <Text text="{ID}" />
+                                                <Text text="{name}" />
+                                                <Text text="{category}" />
+                                                <Text text="{unit}" />
+                                                <ObjectNumber number="{availableStock}" state="{= ${availableStock} > 0 ? 'Success' : 'Error'}" />
+                                                <Button text="Request" type="Emphasized" enabled="{= ${availableStock} > 0}" press="onOpenRequestForm" />
+                                            </cells>
+                                        </ColumnListItem>
+                                    </items>
+                                </Table>
+                            </IconTabFilter>
+
+                            <!-- Tab 2: Create Request Page -->
+                            <IconTabFilter key="create" id="createTab" text="Create Request" icon="sap-icon://create-form">
+                                <f:SimpleForm id="requestForm" editable="true" layout="ColumnLayout">
+                                    <f:content>
+                                        <Label text="Selected Product" />
+                                        <Input id="reqProdName" editable="false" />
+                                        
+                                        <Label text="Employee Name" required="true" />
+                                        <Input id="empName" placeholder="Enter your name" />
+                                        
+                                        <Label text="Quantity" required="true" />
+                                        <StepInput id="reqQuantity" value="1" min="1" />
+                                        
+                                        <Label text="Reason" required="true" />
+                                        <TextArea id="reqReason" rows="3" placeholder="Enter request reason" />
+                                        
+                                        <Label text="" />
+                                        <Button text="Submit Request" type="Accept" press="onSubmitRequest" />
+                                        
+                                        <Label text="" />
+                                        <Button text="Cancel" type="Transparent" press="onCancelRequest" />
+                                    </f:content>
+                                </f:SimpleForm>
+                            </IconTabFilter>
+
+                            <!-- Tab 3: Request Management Page (Admin) -->
+                            <IconTabFilter key="admin" text="Request Management (Admin)" icon="sap-icon://employee-approvals">
+                                <Table id="requestTable" items="{/SupplyRequests}">
+                                    <columns>
+                                        <Column><Text text="Employee" /></Column>
+                                        <Column><Text text="Product" /></Column>
+                                        <Column><Text text="Quantity" /></Column>
+                                        <Column><Text text="Status" /></Column>
+                                        <Column><Text text="Created At" /></Column>
+                                        <Column><Text text="Actions" /></Column>
+                                    </columns>
+                                    <items>
+                                        <ColumnListItem>
+                                            <cells>
+                                                <Text text="{employeeName}" />
+                                                <Text text="{product/name}" />
+                                                <Text text="{quantity}" />
+                                                <ObjectStatus text="{status}" state="{= ${status} === 'APPROVED' ? 'Success' : ${status} === 'REJECTED' ? 'Error' : 'Warning'}" />
+                                                <Text text="{createdAt}" />
+                                                <!-- Both Approve and Reject buttons wrapped in a Action Box -->
+                                                <HBox displayInline="true">
+                                                    <Button text="Approve" type="Accept" press="onApprove" class="sapUiTinyMarginEnd" visible="{= ${status} === 'NEW'}" />
+                                                    <Button text="Reject" type="Reject" press="onReject" visible="{= ${status} === 'NEW'}" />
+                                                </HBox>
+                                            </cells>
+                                        </ColumnListItem>
+                                    </items>
+                                </Table>
+                            </IconTabFilter>
+                        </items>
+                    </IconTabBar>
+                </content>
+            </Page>
+        </pages>
+    </App>
+</mvc:View>
