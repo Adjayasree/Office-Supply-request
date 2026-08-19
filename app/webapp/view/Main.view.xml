@@ -7,7 +7,7 @@
     
     <App id="app">
         <pages>
-            <Page id="page" title="Office Supply Request Management">
+            <Page id="page" title="Office Supply Request Management (V2)">
                 <content>
                     <IconTabBar id="iconTabBar" selectedKey="products">
                         <items>
@@ -29,62 +29,90 @@
                                                 <Text text="{name}" />
                                                 <Text text="{category}" />
                                                 <Text text="{unit}" />
-                                                <ObjectNumber number="{availableStock}" state="{= ${availableStock} > 0 ? 'Success' : 'Error'}" />
-                                                <Button text="Request" type="Emphasized" enabled="{= ${availableStock} > 0}" press="onOpenRequestForm" />
+                                                <ObjectNumber number="{availableStock}" state="{= Number(${availableStock}) > 0 ? 'Success' : 'Error'}" />
+                                                <Button text="Add to Cart" type="Emphasized" enabled="{= parseInt(${availableStock}) > 0}" press="onAddToCart" />
                                             </cells>
                                         </ColumnListItem>
                                     </items>
                                 </Table>
                             </IconTabFilter>
 
-                            <!-- Tab 2: Create Request Page -->
-                            <IconTabFilter key="create" id="createTab" text="Create Request" icon="sap-icon://create-form">
-                                <f:SimpleForm id="requestForm" editable="true" layout="ColumnLayout">
-                                    <f:content>
-                                        <Label text="Selected Product" />
-                                        <Input id="reqProdName" editable="false" />
-                                        
-                                        <Label text="Employee Name" required="true" />
-                                        <Input id="empName" placeholder="Enter your name" />
-                                        
-                                        <Label text="Quantity" required="true" />
-                                        <StepInput id="reqQuantity" value="1" min="1" />
-                                        
-                                        <Label text="Reason" required="true" />
-                                        <TextArea id="reqReason" rows="3" placeholder="Enter request reason" />
-                                        
-                                        <Label text="" />
-                                        <Button text="Submit Request" type="Accept" press="onSubmitRequest" />
-                                        
-                                        <Label text="" />
-                                        <Button text="Cancel" type="Transparent" press="onCancelRequest" />
-                                    </f:content>
-                                </f:SimpleForm>
+                            <!-- Tab 2: Create Request Cart Page -->
+                            <IconTabFilter key="create" id="createTab" text="Request Cart" icon="sap-icon://cart">
+                                <VBox class="sapUiSmallMargin">
+                                    <f:SimpleForm id="headerForm" editable="true" layout="ColumnLayout" title="Header Information">
+                                        <f:content>
+                                            <Label text="Employee Name" required="true" />
+                                            <Input id="empName" placeholder="Enter your full name" />
+                                            
+                                            <Label text="Department" required="true" />
+                                            <Input id="empDept" placeholder="Enter department (e.g. IT, HR)" />
+                                            
+                                            <Label text="Business Reason" required="true" />
+                                            <TextArea id="reqReason" rows="2" placeholder="Enter justification for supplies" />
+                                        </f:content>
+                                    </f:SimpleForm>
+
+                                    <Title text="Cart Items (1 to 5 Items)" class="sapUiSmallMarginTop" />
+                                    <Table id="cartTable" items="{cartModel>/items}">
+                                        <columns>
+                                            <Column><Text text="Product ID" /></Column>
+                                            <Column><Text text="Product Name" /></Column>
+                                            <Column><Text text="Quantity" /></Column>
+                                            <Column><Text text="Action" /></Column>
+                                        </columns>
+                                        <items>
+                                            <ColumnListItem>
+                                                <cells>
+                                                    <Text text="{cartModel>product_ID}" />
+                                                    <Text text="{cartModel>name}" />
+                                                    <StepInput value="{cartModel>quantity}" min="1" max="10" />
+                                                    <Button icon="sap-icon://delete" type="Reject" press="onRemoveFromCart" />
+                                                </cells>
+                                            </ColumnListItem>
+                                        </items>
+                                    </Table>
+
+                                    <HBox class="sapUiSmallMarginTop">
+                                        <Button text="Submit Request" type="Accept" press="onSubmitCartRequest" class="sapUiTinyMarginEnd" />
+                                        <Button text="Clear Cart" type="Transparent" press="onClearCart" />
+                                    </HBox>
+                                </VBox>
                             </IconTabFilter>
 
                             <!-- Tab 3: Request Management Page (Admin) -->
                             <IconTabFilter key="admin" text="Request Management (Admin)" icon="sap-icon://employee-approvals">
-                                <Table id="requestTable" items="{/SupplyRequests}">
+                                <Table id="requestTable" items="{
+                                    path: '/RequestHeaders',
+                                    parameters: {
+                                       '$expand': 'items($expand=product)'
+                                    }
+                                }">
                                     <columns>
                                         <Column><Text text="Employee" /></Column>
-                                        <Column><Text text="Product" /></Column>
-                                        <Column><Text text="Quantity" /></Column>
+                                        <Column><Text text="Department" /></Column>
+                                        
+                                        <!-- ADDED: Column for requested item details -->
+                                        <Column><Text text="Requested Items &amp; Qty" /></Column>
+                                        
                                         <Column><Text text="Status" /></Column>
-                                        <Column><Text text="Created At" /></Column>
+                                        <Column><Text text="Rejection Reason" /></Column>
                                         <Column><Text text="Actions" /></Column>
                                     </columns>
                                     <items>
                                         <ColumnListItem>
                                             <cells>
                                                 <Text text="{employeeName}" />
-                                                <Text text="{product/name}" />
-                                                <Text text="{quantity}" />
+                                                <Text text="{department}" />
+                                                
+                                                <!-- ADDED: Cell to render formatted item details and quantities -->
+                                                <Text text="{path: 'items', formatter: '.formatItemDetails', targetType : 'any'}" wrapping="true" />
+                                                
                                                 <ObjectStatus text="{status}" state="{= ${status} === 'APPROVED' ? 'Success' : ${status} === 'REJECTED' ? 'Error' : 'Warning'}" />
-                                                <Text text="{createdAt}" />
-                                                <!-- Both Approve and Reject buttons wrapped in a Action Box -->
+                                                <Text text="{rejectionReason}" />
                                                 <HBox displayInline="true">
-                                                    <Button text="Approve" type="Accept" press="onApprove" class="sapUiTinyMarginEnd" visible="{= ${status} === 'NEW'}" />
-                                                    <Button text="Reject" type="Reject" press="onReject" visible="{= ${status} === 'NEW'}" />
+                                                    <Button text="Approve" type="Accept" press="onApprove" class="sapUiTinyMarginEnd" visible="{= ${status} === 'NEW' ? true : false}" />
+                                                    <Button text="Reject" type="Reject" press="onOpenRejectDialog" visible="{= ${status} === 'NEW' ? true : false}" />
                                                 </HBox>
                                             </cells>
                                         </ColumnListItem>

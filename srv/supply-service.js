@@ -1,68 +1,118 @@
 const cds = require('@sap/cds');
 
 module.exports = cds.service.impl(async function () {
-  const { Products, SupplyRequests } = this.entities;
+    const { Products, RequestHeaders, RequestItems } = this.entities;
 
-  // Validation: Mandatory backend checks upon creation
-  this.before('CREATE', 'SupplyRequests', async (req) => {
-    const { product_ID, quantity } = req.data;
+    // -------------------------------------------------------------
+    // 1. BEFORE CREATE: Validate Deep-Create Payload
+    // -------------------------------------------------------------
+    this.before('CREATE', 'RequestHeaders', async (req) => {
+        const { employeeName, department, reason, items } = req.data;
 
-    // Rule 1: Quantity > 0
-    if (!quantity || quantity <= 0 || !Number.isInteger(quantity)) {
-      return req.error(400, 'Quantity must be a whole number greater than zero.');
-    }
+        // Force initial status to NEW regardless of what client sends
+        req.data.status = 'NEW';
 
-    // Rule 2: Product existence
-    const product = await SELECT.one.from(Products).where({ ID: product_ID });
-    if (!product) {
-      return req.error(404, 'The selected product does not exist.');
-    }
-  });
+        // Rule: Required Header Fields
+        if (!employeeName || !department || !reason) {
+            return req.error(400, 'Employee Name, Department, and Reason are mandatory.');
+        }
 
-  // Action: approveRequest
-  this.on('approveRequest', async (req) => {
-    const { requestID } = req.data;
+        // Rule: 1 to 5 Items constraint
+        if (!items || items.length === 0) {
+            return req.error(400, 'A request must contain at least 1 item.');
+        }
+        if (items.length > 5) {
+            return req.error(400, 'A request cannot contain more than 5 items.');
+        }
 
-    // Start single transaction
-    return cds.transaction(req).run(async (tx) => {
-      // 1. Fetch Request
-      const request = await tx.run(SELECT.one.from(SupplyRequests).where({ ID: requestID }));
-      if (!request) return req.error(404, 'Request not found.');
+        const productIds = new Set();
 
-      // Rule 3 & 4: Only NEW requests can be approved/rejected
-      if (request.status !== 'NEW') {
-        return req.error(400, `Request is already ${request.status}. Cannot approve twice.`);
-      }
+        for (const item of items) {
+            // Rule: Valid positive integer quantities
+            if (!item.quantity || item.quantity <= 0 || !Number.isInteger(item.quantity)) {
+                return req.error(400, `Invalid quantity for product ${item.product_ID}. Quantity must be a whole number greater than 0.`);
+            }
 
-      // 2. Fetch latest stock
-      const product = await tx.run(SELECT.one.from(Products).where({ ID: request.product_ID }));
+            // Rule: Prevent Duplicate Products in single request
+            if (productIds.has(item.product_ID)) {
+                return req.error(400, `Duplicate product ${item.product_ID} detected in request.`);
+            }
+            productIds.add(item.product_ID);
 
-      // Rule 5 & 7: Check stock availability
-      if (!product || product.availableStock < request.quantity) {
-        return req.error(400, `Insufficient stock! Requested: ${request.quantity}, Available: ${product ? product.availableStock : 0}.`);
-      }
-
-      // Rule 6: Update stock and status together
-      await tx.run(UPDATE(Products).set({ availableStock: product.availableStock - request.quantity }).where({ ID: product.product_ID || product.ID }));
-      await tx.run(UPDATE(SupplyRequests).set({ status: 'APPROVED' }).where({ ID: requestID }));
-
-      return 'Request APPROVED successfully!';
+            // Rule: Verify product existence
+            const dbProduct = await SELECT.one.from(Products).where({ ID: item.product_ID });
+            if (!dbProduct) {
+                return req.error(404, `Product ${item.product_ID} does not exist.`);
+            }
+        }
     });
-  });
 
-  // Action: rejectRequest
-  this.on('rejectRequest', async (req) => {
-    const { requestID } = req.data;
+    // -------------------------------------------------------------
+    // 2. ACTION: Approve Request (All-or-Nothing Transaction)
+    // -------------------------------------------------------------
+    this.on('approveRequest', async (req) => {
+        const { requestID } = req.data;
 
-    const request = await SELECT.one.from(SupplyRequests).where({ ID: requestID });
-    if (!request) return req.error(404, 'Request not found.');
+        // Fetch Header with items and product details
+        const header = await SELECT.one.from(RequestHeaders)
+            .where({ ID: requestID })
+            .columns(h => {
+                h.status,
+                h.items(i => {
+                    i.quantity,
+                    i.product_ID
+                })
+            });
 
-    if (request.status !== 'NEW') {
-      return req.error(400, `Request is already ${request.status}.`);
-    }
+        if (!header) return req.error(404, `Request ${requestID} not found.`);
+        if (header.status !== 'NEW') {
+            return req.error(400, `Only requests with status 'NEW' can be approved. Current status: ${header.status}`);
+        }
 
-    // Rule 8: Rejection updates status without changing stock
-    await UPDATE(SupplyRequests).set({ status: 'REJECTED' }).where({ ID: requestID });
-    return 'Request REJECTED.';
-  });
+        // Mandatory Stock Check (All-or-Nothing)
+        for (const item of header.items) {
+            const product = await SELECT.one.from(Products).where({ ID: item.product_ID });
+            if (!product || product.availableStock < item.quantity) {
+                return req.error(400, `Approval failed: Insufficient stock for product '${product ? product.name : item.product_ID}'. Required: ${item.quantity}, Available: ${product ? product.availableStock : 0}.`);
+            }
+        }
+
+        // Atomic Update across all products & header status
+        return cds.tx(req).run(async (tx) => {
+            for (const item of header.items) {
+                await tx.update(Products)
+                    .set({ availableStock: { '-=': item.quantity } })
+                    .where({ ID: item.product_ID });
+            }
+
+            await tx.update(RequestHeaders)
+                .set({ status: 'APPROVED' })
+                .where({ ID: requestID });
+
+            return 'Request approved successfully and inventory updated.';
+        });
+    });
+
+    // -------------------------------------------------------------
+    // 3. ACTION: Reject Request
+    // -------------------------------------------------------------
+    this.on('rejectRequest', async (req) => {
+        const { requestID, rejectionReason } = req.data;
+
+        if (!rejectionReason || rejectionReason.trim() === '') {
+            return req.error(400, 'Rejection reason is mandatory.');
+        }
+
+        const header = await SELECT.one.from(RequestHeaders).where({ ID: requestID });
+        if (!header) return req.error(404, `Request ${requestID} not found.`);
+        if (header.status !== 'NEW') {
+            return req.error(400, `Only requests with status 'NEW' can be rejected.`);
+        }
+
+        await UPDATE(RequestHeaders)
+            .set({ status: 'REJECTED', rejectionReason: rejectionReason })
+            .where({ ID: requestID });
+
+        return 'Request rejected successfully.';
+    });
 });

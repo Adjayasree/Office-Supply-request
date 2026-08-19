@@ -10,14 +10,22 @@ entity Products {
       availableStock : Integer;
 }
 
-entity SupplyRequests : cuid, managed {
-  employeeName : String(100);
-  product      : Association to Products;
-  quantity     : Integer;
-  reason       : String(255);
-  status       : String enum {
-    NEW;
-    APPROVED;
-    REJECTED;
-  } default 'NEW';
+entity RequestHeaders : cuid, managed {
+  employeeName    : String(100);
+  department      : String(60);
+  reason          : String(255);
+  status          : String(20) enum {
+                      NEW;
+                      APPROVED;
+                      REJECTED;
+                    } default 'NEW';
+  rejectionReason : String(255);
+  items           : Composition of many RequestItems on items.parent = $self;
+}
+  
+entity RequestItems {
+  key ID   : UUID;
+  parent   : Association to RequestHeaders;
+  product  : Association to Products;
+  quantity : Integer;
 }
